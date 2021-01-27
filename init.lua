@@ -37,9 +37,17 @@ local function on_resultsent(res)
 end
 
 local function run(code)
+	local res
+	local func, err = loadstring(code)
+	if not func then
+		res = {result = err}
+	else
+		res = {result = dump(func())}
+	end
+
 	local req = {
 		url = "http://127.0.0.1:2468/result",
-		post_data = minetest.write_json({result = code}),
+		post_data = minetest.write_json(res),
 	}
 	http.fetch(req, on_resultsent)
 end
