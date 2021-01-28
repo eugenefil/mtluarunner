@@ -32,22 +32,28 @@ end
 local fetch_code
 
 local function on_resultsent(res)
-	assert(res.succeeded)
+	assert(res.succeeded, dump(res))
 	fetch_code()
 end
 
+local function errhandler(err)
+	return debug.traceback(err, 1)
+end
+
 local function run(code)
-	local res
-	local func, err = loadstring(code)
-	if not func then
-		res = {result = err}
+	local result
+	local chunk, err = loadstring(code)
+	if not chunk then
+		result = {status = false, value = err}
 	else
-		res = {result = dump(func())}
+		local status, res = xpcall(chunk, errhandler)
+		if status then res = dump(res) end
+		result = {status = status, value = res}
 	end
 
 	local req = {
 		url = "http://127.0.0.1:2468/result",
-		post_data = minetest.write_json(res),
+		post_data = minetest.write_json(result),
 	}
 	http.fetch(req, on_resultsent)
 end
