@@ -40,15 +40,25 @@ local function errhandler(err)
 	return debug.traceback(err, 1)
 end
 
+local function get_result(status, res1_or_err, ...)
+	local value = res1_or_err
+	if status then
+		value = dump(value)
+		local results = {...}
+		for i = 1, select("#", ...) do
+			value = value .. "\t" .. dump(results[i])
+		end
+	end
+	return {status = status, value = value}
+end
+
 local function run(code)
 	local result
 	local chunk, err = loadstring(code)
 	if not chunk then
 		result = {status = false, value = err}
 	else
-		local status, res = xpcall(chunk, errhandler)
-		if status then res = dump(res) end
-		result = {status = status, value = res}
+		result = get_result(xpcall(chunk, errhandler))
 	end
 
 	local req = {
