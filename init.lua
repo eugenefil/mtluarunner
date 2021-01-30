@@ -1,9 +1,32 @@
 -- TODO resend result on http error
 
+local insecure_env = minetest.request_insecure_environment()
+if not insecure_env then
+	minetest.log("error", "mtluarunner mod can't access insecure environment, please add it to secure.trusted_mods")
+	return
+end
+
 local http = minetest.request_http_api()
 if not http then
-	minetest.log("error", "mtluarunner mod can't access http, please add it to secure.http_mods")
+	minetest.log("error", "mtluarunner mod can't access http api")
 	return
+end
+
+mtluarunner = {}
+mtluarunner.locals = {}
+
+local fetch_code
+
+function mtluarunner.save_locals()
+	local i = 1
+	while true do
+		-- get i-th local var from calling func
+		local name, val = insecure_env.debug.getlocal(2, i)
+		if not name then return end
+		-- note: wrap var's value in table to keep nils
+		mtluarunner.locals[name] = {val}
+		i = i + 1
+	end
 end
 
 local function parse_code(s)
@@ -29,8 +52,6 @@ local function parse_code(s)
 	return obj.code, nil
 end
 
-local fetch_code
-
 local function on_resultsent(res)
 	assert(res.succeeded, dump(res))
 	fetch_code()
@@ -52,12 +73,40 @@ local function get_result(status, res1_or_err, ...)
 	return {status = status, value = value}
 end
 
+local function transform(code)
+	local orig_code = code
+	-- original code is valid, now let's try to add an
+	-- instruction to save locals before exiting chunk
+	code = code .. '\n' .. "mtluarunner.save_locals()"
+	local chunk = loadstring(code)
+	if not chunk then
+		-- modified code is invalid, which means the
+		-- last statement was return, so we don't save
+		-- locals and fall back to original code
+		code = orig_code
+	end
+
+	-- prepend declarations of locals, saved after running
+	-- all previous codes, i.e. our local state
+	local decls = ""
+	for name, _ in pairs(mtluarunner.locals) do
+		local decl = string.format(
+			"local %s = mtluarunner.locals.%s[1]",
+			name, name)
+		decls = decls .. decl .. "\n"
+	end
+	return decls .. code
+end
+
 local function run(code)
 	local result
 	local chunk, err = loadstring(code)
 	if not chunk then
 		result = {status = false, value = err}
 	else
+		code = transform(code)
+		chunk, err = loadstring(code)
+		assert(chunk, err) -- transformed code must be valid
 		result = get_result(xpcall(chunk, errhandler))
 	end
 
