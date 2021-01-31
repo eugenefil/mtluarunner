@@ -1,4 +1,6 @@
 -- TODO resend result on http error
+-- TODO replace tostring w/ dump in my print() (except for string values)
+-- TODO protect my print() from being called while not running some code
 
 local insecure_env = minetest.request_insecure_environment()
 if not insecure_env then
@@ -14,8 +16,22 @@ end
 
 mtluarunner = {}
 mtluarunner.locals = {}
+mtluarunner.stdout = ""
 
 local fetch_code
+
+local orig_print = print
+print = function(...)
+	local args = {...}
+	local out = ""
+	for i = 1, select("#", ...) do
+		if i > 1 then out = out .. "\t" end
+		out = out .. tostring(args[i])
+	end
+	mtluarunner.stdout = mtluarunner.stdout .. out .. "\n"
+
+	return orig_print(...)
+end
 
 function mtluarunner.save_locals()
 	local i = 1
@@ -62,15 +78,21 @@ local function errhandler(err)
 end
 
 local function get_result(status, res1_or_err, ...)
-	local value = res1_or_err
+	local res = {status = status}
+	local stdout = mtluarunner.stdout
+	mtluarunner.stdout = "" -- flush stdout
 	if status then
-		value = dump(value)
 		local results = {...}
+		local value = dump(res1_or_err)
 		for i = 1, select("#", ...) do
 			value = value .. "\t" .. dump(results[i])
 		end
+		res.value = value
+	else
+		stdout = stdout .. res1_or_err
 	end
-	return {status = status, value = value}
+	if stdout ~= "" then res.stdout = stdout end
+	return res
 end
 
 local function transform(code)
@@ -89,7 +111,7 @@ local function transform(code)
 	-- prepend declarations of locals, saved after running
 	-- all previous codes, i.e. our local state
 	local decls = ""
-	for name, _ in pairs(mtluarunner.locals) do
+	for name in pairs(mtluarunner.locals) do
 		local decl = string.format(
 			"local %s = mtluarunner.locals.%s[1]",
 			name, name)
@@ -102,7 +124,7 @@ local function run(code)
 	local result
 	local chunk, err = loadstring(code)
 	if not chunk then
-		result = {status = false, value = err}
+		result = {status = false, stdout = err}
 	else
 		code = transform(code)
 		chunk, err = loadstring(code)
