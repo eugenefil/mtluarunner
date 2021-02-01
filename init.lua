@@ -1,5 +1,4 @@
 -- TODO resend result on http error
--- TODO protect my print() from being called while not running some code
 
 local insecure_env = minetest.request_insecure_environment()
 if not insecure_env then
@@ -15,7 +14,9 @@ end
 
 mtluarunner = {}
 mtluarunner.locals = {}
-mtluarunner.stdout = ""
+
+local stdout = ""
+local catch_stdout = false
 
 local fetch_code
 
@@ -26,14 +27,15 @@ end
 
 local orig_print = print
 print = function(...)
-	local args = {...}
-	local out = ""
-	for i = 1, select("#", ...) do
-		if i > 1 then out = out .. "\t" end
-		out = out .. tostr(args[i])
+	if catch_stdout then
+		local args = {...}
+		local out = ""
+		for i = 1, select("#", ...) do
+			if i > 1 then out = out .. "\t" end
+			out = out .. tostr(args[i])
+		end
+		stdout = stdout .. out .. "\n"
 	end
-	mtluarunner.stdout = mtluarunner.stdout .. out .. "\n"
-
 	return orig_print(...)
 end
 
@@ -83,8 +85,8 @@ end
 
 local function get_result(status, res1_or_err, ...)
 	local res = {status = status}
-	local stdout = mtluarunner.stdout
-	mtluarunner.stdout = "" -- flush stdout
+	local out = stdout
+	stdout = "" -- flush stdout
 	if status then
 		local results = {...}
 		local value = dump(res1_or_err)
@@ -93,9 +95,9 @@ local function get_result(status, res1_or_err, ...)
 		end
 		res.value = value
 	else
-		stdout = stdout .. res1_or_err
+		out = out .. res1_or_err
 	end
-	if stdout ~= "" then res.stdout = stdout end
+	if out ~= "" then res.stdout = out end
 	return res
 end
 
@@ -133,7 +135,10 @@ local function run(code)
 		code = transform(code)
 		chunk, err = loadstring(code)
 		assert(chunk, err) -- transformed code must be valid
+
+		catch_stdout = true
 		result = get_result(xpcall(chunk, errhandler))
+		catch_stdout = false
 	end
 
 	local req = {
