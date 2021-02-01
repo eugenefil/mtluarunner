@@ -1,4 +1,6 @@
 -- TODO resend result on http error
+-- TODO pretty traceback like in python w/ code lines etc
+-- TODO print reprs of values on last line (if line starts w/ =)
 
 local insecure_env = minetest.request_insecure_environment()
 if not insecure_env then
