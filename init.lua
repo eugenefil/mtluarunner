@@ -1,5 +1,4 @@
 -- TODO resend result on http error
--- TODO replace tostring w/ dump in my print() (except for string values)
 -- TODO protect my print() from being called while not running some code
 
 local insecure_env = minetest.request_insecure_environment()
@@ -20,13 +19,18 @@ mtluarunner.stdout = ""
 
 local fetch_code
 
+local function tostr(o)
+	if type(o) == "string" then return o
+	else return dump(o) end
+end
+
 local orig_print = print
 print = function(...)
 	local args = {...}
 	local out = ""
 	for i = 1, select("#", ...) do
 		if i > 1 then out = out .. "\t" end
-		out = out .. tostring(args[i])
+		out = out .. tostr(args[i])
 	end
 	mtluarunner.stdout = mtluarunner.stdout .. out .. "\n"
 
