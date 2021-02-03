@@ -85,19 +85,21 @@ local function errhandler(err)
 	return debug.traceback(err, 1)
 end
 
-local function get_result(status, res1_or_err, ...)
+local function get_result(status, ...)
 	local res = {status = status}
 	local out = stdout
 	stdout = "" -- flush stdout
-	if status then
-		local results = {...}
-		local value = dump(res1_or_err)
-		for i = 1, select("#", ...) do
-			value = value .. "\t" .. dump(results[i])
+	local n, results = select("#", ...), {...}
+	if status and n > 0 then
+		local value = ""
+		for i = 1, n do
+			if i > 1 then value = value .. "\t" end
+			value = value .. dump(results[i])
 		end
 		res.value = value
-	else
-		out = out .. res1_or_err
+	elseif not status then
+		assert(n == 1) -- error handler must return message
+		out = out .. results[1]
 	end
 	if out ~= "" then res.stdout = out end
 	return res
