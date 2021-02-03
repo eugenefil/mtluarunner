@@ -1,6 +1,7 @@
 -- TODO resend result on http error
 -- TODO pretty traceback like in python w/ code lines etc
 -- TODO print reprs of values on last line (if line starts w/ =)
+-- TODO save local vars on error (call save_locals in errhandler)
 
 local insecure_env = minetest.request_insecure_environment()
 if not insecure_env then
@@ -47,8 +48,10 @@ function mtluarunner.save_locals()
 		-- get i-th local var from calling func
 		local name, val = insecure_env.debug.getlocal(2, i)
 		if not name then return end
-		-- note: wrap var's value in table to keep nils
-		mtluarunner.locals[name] = {val}
+		if name:sub(1, 1) ~= "(" then -- skip special vars
+			-- note: wrap var's value in table to keep nils
+			mtluarunner.locals[name] = {val}
+		end
 		i = i + 1
 	end
 end
