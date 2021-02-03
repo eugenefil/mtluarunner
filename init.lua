@@ -110,14 +110,18 @@ end
 
 local function transform(code)
 	local orig_code = code
-	-- original code is valid, now let's try to add an
+	-- original code is valid, now let's try to append an
 	-- instruction to save locals before exiting chunk
 	code = code .. '\n' .. "mtluarunner.save_locals()"
 	local chunk = loadstring(code)
 	if not chunk then
-		-- modified code is invalid, which means the
-		-- last statement was return, so we don't save
-		-- locals and fall back to original code
+		-- Modified code is invalid, which means the last
+		-- statement was non-empty return, in which case we
+		-- don't save locals and fall back to original code.
+		--
+		-- When last statement is plain empty 'return', it
+		-- will return the value of the appended save_locals()
+		-- call, which returns nothing, so no problem here.
 		code = orig_code
 	end
 
