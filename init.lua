@@ -1,6 +1,5 @@
 -- TODO resend result on http error
 -- TODO pretty traceback like in python w/ code lines etc
--- TODO print reprs of values on last line (if line starts w/ =)
 -- TODO save local vars on error (call save_locals in errhandler)
 
 local insecure_env = minetest.request_insecure_environment()
@@ -137,8 +136,16 @@ local function transform(code)
 	return decls .. code
 end
 
+local function preprocess(code)
+	if code:sub(1,1) == "=" then
+		code = "return " .. code:sub(2)
+	end
+	return code
+end
+
 local function run(code)
 	local result
+	code = preprocess(code)
 	local chunk, err = loadstring(code)
 	if not chunk then
 		result = {status = false, stdout = err}
