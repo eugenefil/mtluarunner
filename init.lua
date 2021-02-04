@@ -109,8 +109,20 @@ end
 
 local function transform(code)
 	local orig_code = code
-	-- original code is valid, now let's try to append an
-	-- instruction to save locals before exiting chunk
+	-- Original code is valid, now let's try to append an
+	-- instruction to save local vars before exiting chunk.
+	--
+	-- The other considered alternative to appending code is using
+	-- debug.sethook() w/ return hook, which is executed right
+	-- before exiting every function being called. The problem was
+	-- you can access locals of the called function from inside
+	-- the hook *only* when the function returns some value. If it
+	-- has no 'return' statement, debug.getlocal() won't see any
+	-- locals. Even worse, in special case when function ends w/
+	-- plain empty 'return', debug.getlocal() sees all the locals,
+	-- but their values are some random garbage. Also using the
+	-- hook could be a performance hit w/ lots of calls, but no
+	-- measurements were done.
 	code = code .. '\n' .. "mtluarunner.save_locals()"
 	local chunk = loadstring(code)
 	if not chunk then
