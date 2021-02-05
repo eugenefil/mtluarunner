@@ -1,6 +1,6 @@
 -- TODO resend result on http error
 -- TODO pretty traceback like in python w/ code lines etc
--- TODO save local vars on error (call save_locals in errhandler)
+-- TODO disable catch_stdout on error
 
 local insecure_env = minetest.request_insecure_environment()
 if not insecure_env then
@@ -41,11 +41,12 @@ print = function(...)
 	return orig_print(...)
 end
 
-function mtluarunner.save_locals()
+-- level is from caller's pov (i.e. 0 means save caller's locals)
+function mtluarunner.save_locals(level)
+	if not level then level = 0 end
 	local i = 1
 	while true do
-		-- get i-th local var from calling func
-		local name, val = insecure_env.debug.getlocal(2, i)
+		local name, val = insecure_env.debug.getlocal(level + 2, i)
 		if not name then return end
 		if name:sub(1, 1) ~= "(" then -- skip special vars
 			-- note: wrap var's value in table to keep nils
@@ -83,7 +84,25 @@ local function on_resultsent(res)
 	fetch_code()
 end
 
-local function errhandler(err)
+local function errhandler(root_chunk, err)
+	-- find root chunk on stack and save its local vars
+	local lvl = 0
+	while true do
+		local info = debug.getinfo(lvl + 2, "f")
+		if not info then
+			-- We looked through whole stack, but root
+			-- chunk was not found. That means its frame
+			-- was destroyed by tail call.
+			break
+		end
+		if info.func == root_chunk then
+			-- note: +1 below accounts for handler itself
+			mtluarunner.save_locals(lvl + 1)
+			break
+		end
+		lvl = lvl + 1
+	end
+
 	return debug.traceback(err, 1)
 end
 
@@ -167,7 +186,8 @@ local function run(code)
 		assert(chunk, err) -- transformed code must be valid
 
 		catch_stdout = true
-		result = get_result(xpcall(chunk, errhandler))
+		result = get_result(xpcall(chunk, function(err)
+			return errhandler(chunk, err) end))
 		catch_stdout = false
 	end
 
