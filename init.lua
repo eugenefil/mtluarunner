@@ -8,6 +8,9 @@ if not http then
 	return
 end
 
+local E = {}
+setmetatable(E, {__index = _G})
+
 local stdout = ""
 local catch_stdout = false
 
@@ -98,6 +101,8 @@ local function run(code)
 	if not chunk then
 		result = {status = false, stdout = err}
 	else
+		setfenv(chunk, E)
+
 		catch_stdout = true
 		result = get_result(xpcall(chunk, errhandler))
 		catch_stdout = false
