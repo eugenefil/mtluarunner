@@ -2,20 +2,11 @@
 -- TODO pretty traceback like in python w/ code lines etc
 -- TODO disable catch_stdout on error
 
-local insecure_env = minetest.request_insecure_environment()
-if not insecure_env then
-	minetest.log("error", "mtluarunner mod can't access insecure environment, please add it to secure.trusted_mods")
-	return
-end
-
 local http = minetest.request_http_api()
 if not http then
-	minetest.log("error", "mtluarunner mod can't access http api")
+	minetest.log("error", "mtluarunner mod can't access http api, please add it to secure.http_mods")
 	return
 end
-
-mtluarunner = {}
-mtluarunner.locals = {}
 
 local stdout = ""
 local catch_stdout = false
@@ -39,21 +30,6 @@ print = function(...)
 		stdout = stdout .. out .. "\n"
 	end
 	return orig_print(...)
-end
-
--- level is from caller's pov (i.e. 0 means save caller's locals)
-function mtluarunner.save_locals(level)
-	if not level then level = 0 end
-	local i = 1
-	while true do
-		local name, val = insecure_env.debug.getlocal(level + 2, i)
-		if not name then return end
-		if name:sub(1, 1) ~= "(" then -- skip special vars
-			-- note: wrap var's value in table to keep nils
-			mtluarunner.locals[name] = {val}
-		end
-		i = i + 1
-	end
 end
 
 local function parse_code(s)
@@ -84,25 +60,7 @@ local function on_resultsent(res)
 	fetch_code()
 end
 
-local function errhandler(root_chunk, err)
-	-- find root chunk on stack and save its local vars
-	local lvl = 0
-	while true do
-		local info = debug.getinfo(lvl + 2, "f")
-		if not info then
-			-- We looked through whole stack, but root
-			-- chunk was not found. That means its frame
-			-- was destroyed by tail call.
-			break
-		end
-		if info.func == root_chunk then
-			-- note: +1 below accounts for handler itself
-			mtluarunner.save_locals(lvl + 1)
-			break
-		end
-		lvl = lvl + 1
-	end
-
+local function errhandler(err)
 	return debug.traceback(err, 1)
 end
 
@@ -126,47 +84,6 @@ local function get_result(status, ...)
 	return res
 end
 
-local function transform(code)
-	local orig_code = code
-	-- Original code is valid, now let's try to append an
-	-- instruction to save local vars before exiting chunk.
-	--
-	-- The other considered alternative to appending code is using
-	-- debug.sethook() w/ return hook, which is executed right
-	-- before exiting every function being called. The problem was
-	-- you can access locals of the called function from inside
-	-- the hook *only* when the function returns some value. If it
-	-- has no 'return' statement, debug.getlocal() won't see any
-	-- locals. Even worse, in special case when function ends w/
-	-- plain empty 'return', debug.getlocal() sees all the locals,
-	-- but their values are some random garbage. Also using the
-	-- hook could be a performance hit w/ lots of calls, but no
-	-- measurements were done.
-	code = code .. '\n' .. "mtluarunner.save_locals()"
-	local chunk = loadstring(code)
-	if not chunk then
-		-- Modified code is invalid, which means the last
-		-- statement was non-empty return, in which case we
-		-- don't save locals and fall back to original code.
-		--
-		-- When last statement is plain empty 'return', it
-		-- will return the value of the appended save_locals()
-		-- call, which returns nothing, so no problem here.
-		code = orig_code
-	end
-
-	-- prepend declarations of locals, saved after running
-	-- all previous codes, i.e. our local state
-	local decls = ""
-	for name in pairs(mtluarunner.locals) do
-		local decl = string.format(
-			"local %s = mtluarunner.locals.%s[1]",
-			name, name)
-		decls = decls .. decl .. "\n"
-	end
-	return decls .. code
-end
-
 local function preprocess(code)
 	if code:sub(1,1) == "=" then
 		code = "return " .. code:sub(2)
@@ -181,13 +98,8 @@ local function run(code)
 	if not chunk then
 		result = {status = false, stdout = err}
 	else
-		code = transform(code)
-		chunk, err = loadstring(code)
-		assert(chunk, err) -- transformed code must be valid
-
 		catch_stdout = true
-		result = get_result(xpcall(chunk, function(err)
-			return errhandler(chunk, err) end))
+		result = get_result(xpcall(chunk, errhandler))
 		catch_stdout = false
 	end
 
