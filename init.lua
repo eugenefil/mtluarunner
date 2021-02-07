@@ -1,6 +1,5 @@
 -- TODO resend result on http error
 -- TODO pretty traceback like in python w/ code lines etc
--- TODO disable catch_stdout on error
 
 local http = minetest.request_http_api()
 if not http then
@@ -12,7 +11,6 @@ local E = {}
 setmetatable(E, {__index = _G})
 
 local stdout = ""
-local catch_stdout = false
 
 local fetch_code
 
@@ -21,18 +19,14 @@ local function tostr(o)
 	else return dump(o) end
 end
 
-local orig_print = print
-print = function(...)
-	if catch_stdout then
-		local args = {...}
-		local out = ""
-		for i = 1, select("#", ...) do
-			if i > 1 then out = out .. "\t" end
-			out = out .. tostr(args[i])
-		end
-		stdout = stdout .. out .. "\n"
+function E.print(...)
+	local out = ""
+	local args = {...}
+	for i = 1, select("#", ...) do
+		if i > 1 then out = out .. "\t" end
+		out = out .. tostr(args[i])
 	end
-	return orig_print(...)
+	stdout = stdout .. out .. "\n"
 end
 
 local function parse_code(s)
@@ -102,10 +96,7 @@ local function run(code)
 		result = {status = false, stdout = err}
 	else
 		setfenv(chunk, E)
-
-		catch_stdout = true
 		result = get_result(xpcall(chunk, errhandler))
-		catch_stdout = false
 	end
 
 	local req = {
