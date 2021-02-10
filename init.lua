@@ -1,5 +1,8 @@
--- TODO resend result on http error
+-- TODO resend result on http error (fetch_code, fetch_init_code paths)
 -- TODO pretty traceback like in python w/ code lines etc
+-- TODO deal w/ arbitrary code in fetch_init_code
+-- TODO choosing load mode for particular mod
+-- TODO mod consists of several files (dofile can't be used due to env)
 
 local http = minetest.request_http_api()
 if not http then
@@ -10,9 +13,48 @@ end
 local E = {}
 setmetatable(E, {__index = _G})
 
+mtluarunner = {}
+
 local stdout = ""
 
 local fetch_code
+
+local load_mode = "local"
+
+-- Loads mod depending on the load mode chosen. If mode is "local",
+-- which is default, main.lua from mod's directory is loaded into
+-- separate environment. If mode is "remote", mtluarunner's
+-- environment is used for the mod and its code is not loaded from
+-- files, but expected to be run through remote interaction.
+--
+-- To inject some variables into the mod's environment, pass them in
+-- vars.
+function mtluarunner.loadmod(vars)
+	local env
+	if load_mode == "remote" then
+		env = E
+	elseif load_mode == "local" then
+		env = {}
+		setmetatable(env, {__index = _G})
+	else
+		assert(nil, "unknown load mode: " .. load_mode)
+	end
+
+	if vars then
+		for k, v in pairs(vars) do env[k] = v end
+	end
+
+	if load_mode == "local" then
+		local mod = minetest.get_current_modname()
+		local path = minetest.get_modpath(mod)
+		local chunk = assert(loadfile(path .. "/main.lua"))
+		setfenv(chunk, env)()
+	end
+end
+
+function E.load_mode(mode)
+	if mode == "remote" then load_mode = mode end
+end
 
 local function tostr(o)
 	if type(o) == "string" then return o
@@ -52,7 +94,7 @@ local function parse_code(s)
 	return obj.code, nil
 end
 
-local function on_resultsent(res)
+local function on_replysent(res)
 	assert(res.succeeded, dump(res))
 	fetch_code()
 end
@@ -99,15 +141,14 @@ local function run(code)
 		result = get_result(xpcall(chunk, errhandler))
 	end
 
-	local req = {
+	return {
 		url = "http://127.0.0.1:2468/result",
 		post_data = minetest.write_json(result),
 	}
-	http.fetch(req, on_resultsent)
 end
 
-local function on_codefetch(res)
-	if not res.succeeded then return fetch_code() end
+local function handle_codefetch(res)
+	if not res.succeeded then return end
 
 	local code, err = parse_code(res.data)
 	if not code or #code == 0 then
@@ -115,14 +156,35 @@ local function on_codefetch(res)
 			minetest.log("error", "Failed to validate json data")
 			minetest.log("error", " " .. err)
 		end
-		return fetch_code()
+		return
 	end
 
 	return run(code)
+end
+
+local function on_codefetch(res)
+	local reply = handle_codefetch(res)
+	if not reply then return fetch_code() end
+	http.fetch(reply, on_replysent)
 end
 
 function fetch_code()
 	http.fetch({url = "http://127.0.0.1:2468/code"}, on_codefetch)
 end
 
+local function send_sync(req)
+	local handle = http.fetch_async(req)
+	while true do
+		local res = http.fetch_async_get(handle)
+		if res.completed then return res end
+	end
+end
+
+local function fetch_init_code()
+	local req = {url = "http://127.0.0.1:2468/code"}
+	local reply = handle_codefetch(send_sync(req))
+	if reply then send_sync(reply) end
+end
+
+fetch_init_code()
 fetch_code()
