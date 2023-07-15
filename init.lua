@@ -1,9 +1,3 @@
--- TODO resend result on http error (fetch_code, fetch_init_code paths)
--- TODO pretty traceback like in python w/ code lines etc
--- TODO deal w/ arbitrary code in fetch_init_code
--- TODO choosing load mode for particular mod
--- TODO mod consists of several files (dofile can't be used due to env)
-
 local http = minetest.request_http_api()
 if not http then
 	minetest.log("error", "mtluarunner mod can't access http api, please add it to secure.http_mods")
